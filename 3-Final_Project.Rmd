@@ -1,0 +1,258 @@
+---
+title: "Final Project: Heart Disease Prediction Model"
+author: "Bishwas Ghimire, Madhav Sigdel, and Surendra Deuja"
+date: "12/02/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction and Objective
+<font size = '4'>
+Early diagnosis can be a game changer when it comes to treating life-threatening diseases such as heart related disease. Researchers and doctors are always trying to come up with markers or symptoms and other tell-tale signs that can alert them to a patient's increased health risk.    
+Clearly, a multitude of variables are involved in a patient's health outcome such as the presence or absense of heart-related complication. A significant subset of these variables can be quantified in one way or another and encoded as numbers (or categories). This naturally qualifies as a situation where the sheer amount of information about a patient can be easily overwhleming to a single doctor or a small group of human scientists in order to come to a meaningful reliable conclusion or prediction, so any help from computers is desirable in this scenatio if it is reasable. This is eactly where data science tools and algorithms can come in handy, which is what motivates our work in this project.   
+
+Our main goal is to develop a machine learning model to predict the presence (or risk) of heart disease based on variables like age, sex, blood pressure, chest pain type, maximum heart rate, resting electrocardiographic results, etc. that are likely to have an impact on heart condition. 
+
+
+# Data Exploration
+We begin by importing the dataset.
+```{r}
+#import hear data
+heart.data = read.csv(file="heart.csv", header=TRUE)
+```
+Here's some more information about the dataset.
+
+*age: age in years  
+*sex: (1 = male; 0 = female)  
+*cp: chest pain type  
+*trestbps: resting blood pressure (in mm Hg on admission to the hospital)  
+*chol: serum cholestoral in mg/dl  
+*fbs: (fasting blood sugar > 120 mg/dl) (1 = true; 0 = false)  
+*restecg: resting electrocardiographic results  
+*thalach: maximum heart rate achieved  
+*exang: exercise induced angina (1 = yes; 0 = no)  
+*oldpeak: ST depression induced by exercise relative to rest  
+*slope: the slope of the peak exercise ST segment  
+*ca: number of major vessels (0-3) colored by flourosopy  
+*thal: 3 = normal; 6 = fixed defect; 7 = reversable defect  
+*target: 1 or 0  
+
+Since we can see that some of the explanatory variables are categorical, we convert them into factor variables. 
+```{r}
+#covert factor variables
+cols = c('sex','fbs','cp','restecg','exang','ca','slope','thal','target')
+heart.data[cols] = lapply(heart.data[cols], factor)
+```
+
+Next thing to do is explore the dataset. Let's quickly display the head to look at different columns and their entries. 
+```{r}
+head(heart.data)
+```
+
+Let's quickly look at the summary statistics.
+
+```{r}
+summary(heart.data)
+```
+# Data Visualization
+
+R's ggplot2 package allows us to make plots that are colored by target classes, which can be helpful. For instance, we can see if the effect of cholesterol on heart disease is different for different ages. 
+```{r}
+library(ggplot2)
+gg = ggplot(heart.data, aes(x=age, y=chol)) + 
+  geom_point(aes(col=target))
+plot(gg)
+```
+
+We can see in the plot that dots with one color (target = 1 or heart disease present) are clustered to one side and another color dots (target = 0 or heart disease not present) are clustered to the other side. Shortly speaking, whether a certain level of cholesterol is indicative of heart problem in a patient or not seems to depend on how old the patient is.
+
+Let's plot another one of these plots for maximum heart rate achieved by the patient.
+```{r}
+gg = ggplot(heart.data, aes(x=age, y=thalach)) + 
+  geom_point(aes(col=target))
+plot(gg)
+```
+
+# Train-test Split
+After our preliminary exploration of the dataset, we can begin model development, but before we begin building any model, let's sequester a portion of the dataset for cross-validation. Below, we do a 80-20 train-test split on our original dataset. 
+
+```{r}
+################################################
+#### Train-Test Split for Cross Validation #####
+
+#define the size of the training set
+train.idx <- floor((nrow(heart.data)/5)*4)  
+
+#sample rows
+set.seed(13) #set seed for reproducible results
+idx = sample(nrow(heart.data))
+heart.data <- heart.data[idx, ]
+
+#get training set
+heart.train <- heart.data[1:train.idx, ]
+#set aside test set
+heart.test <- heart.data[(train.idx+1):nrow(heart.data), ]
+head(heart.test)
+```
+
+# Logistic Regression Model
+
+Using the training data, we will develop a model that can help us predict our target variable, and we will cross-validate the model's performance on the sequestered test data. Since our target is a binary categorical variable, we need a binary classification algorithm. We will use a logistic regression model, which is the classification counterpart of a linear regression model. To build the logistic regression model, we can use R's glm function with family = 'binomial'.
+
+```{r}
+my.model = glm(target~age+sex+cp+thalach+exang+oldpeak+ca + I(age*thalach), data = heart.train, family = "binomial")
+summary(my.model)
+# cv.err = cv.glm(heart.train,mymodel,K=10)
+# cv.err$delta
+```
+### _Interpretation_
+Let's talk about interpreting the model results. The model shown here is a logistic regression model that can predict the binary target variable, which is the presence or absence of heart disease. The coefficients in the model can be interpreted as the marginal effect on log odds of the target variable (log(p/(1-p)) where p is the probability ranging from 0 to 1). For instance, unit increase in age increases the log odds of having heart disease by 0.5, or, being male reduces the log odds by 1.51 points. 
+
+# Model Development Strategy
+
+One thing that needs to be mentioned here is that the model shown here is not the first model we picked. We started by taking into account all the variables that are avaiable to us. We then dropped the variables that are not statistically significant by looking at the p-values and deviance reduction. We confirmed that the variables dropped are statistically insignificant by using likelihood-ratio test. An exmaple is shown below:
+
+```{r}
+###If model0 is a logistic regression submodel of model, then
+###LRtest compares them with a likelihood ratio test and returns
+###the p-value.
+LRtest=function(model0,model){
+  1-pchisq(model0$deviance-model$deviance,
+           df=model0$df.residual-model$df.residual)}
+
+big.model = glm(target~age+sex+cp+thalach+exang+oldpeak+ca + I(age*thalach)+slope+chol+restecg+fbs, data = heart.train, family = "binomial")
+
+small.model = my.model
+LRtest(small.model,big.model)
+  
+```
+
+The p-value shows that we don't have evidence to reject the null hypothesis that variables 'slope', 'chol', 'restecg', 'fbs' are statistically insignificant. Hence, we can drop these from our model. 
+We visually explore the dataset to look for any suggestions of interaction among different variables. When we see something visually, we check to see if it is statistically significant. Notice that we have decided to include an interaction term (age * thalach) in our final model. 
+
+
+# Analysis of Deviance
+To quickly see how each varaible is reducing the residual deviance, we can use 'anova'.
+```{r}
+anova(my.model, test="Chisq")
+```
+
+# Model Diagnostics (using group plots of $\pi$ versus x-groups)
+
+Since we are working with logistic regression, the residuals don't have the same meaning and role in model diagnostics as they do for linear regression because our target variable is now binary with two distint categories. When we make the prediction using our model, we would expect to output either a 0 or a 1, signifying either a 'yes' or a 'no' for the presence or absense of heart disease. Thus, we cannot do possibly do things like checking for the normality of errors as it would make no sense to do that. The error would itself always be a 0 (if we get the target right) or a 1 (if we miss the target). 
+
+Without getting into the details, in logistic regression, the output of the model is always a number between 0 and 1 and can actually be interpreted as the probability that the target variable is 1.   
+
+Similarly, we can make group plots where we can group an independent variable like age in our case into many bins and plot the fraction of the targets in that bin that are true ('1' or 'yes'). This number would rougly mean the probablity that the target is 1 if an individual belongs to that particular age bin.
+
+Since we cannot analyze the residuals, in order to ensure that our model is making reasonable and sensible predictions, we will look at the group plot of the fraction of true target values for each age bin and compare that to the group plot of the mean predicted target probabilities for that bin. 
+```{r}
+#sigmoid maps a real number to a number between 0 and 1
+pi = function(g){
+  return(exp(g)/(1+exp(g)))}
+#logit calculates the logit of a number p between 0 and 1.
+logit=function(p){
+  log(p/(1-p))}
+
+###Given a vector of numerical values x, a response vector Y, and a 
+###number of groups k, groupplot returns a list.
+###x=mean of x groups
+###Pi=mean of Y values in each group (with Wilson's adjustment)
+###g=logit of Pi
+groupplot=function(x,Y,k){
+  sortframe=sort(x,index=TRUE)
+  x=sortframe$x
+  Y=Y[sortframe$ix]
+  xmeans=1:k
+  Pi=1:k
+  s=floor(length(x)/k)  #groupsize
+  
+  for(i in 1:k){
+    index=(((i-1)*s+1):(i*s))
+    xmeans[i]=mean(x[index])
+    Pi[i]=(sum(Y[index])+2)/(s+4)}
+  
+  g=logit(Pi)
+  return(list(x=xmeans,g=g,Pi=Pi))}
+
+as.numeric.factor = function(x) {as.numeric(levels(x))[x]}
+
+#number of bins 
+bins = 20
+
+group.true = groupplot(heart.train$age,as.numeric.factor(heart.train$target),bins)
+
+y.hat = predict(my.model,newdata = heart.train, type = 'response' )
+group.pred = groupplot(heart.train$age,y.hat,bins)
+
+x1 = group.true$x
+y1 = group.true$Pi
+x2 = group.pred$x
+y2 = group.pred$Pi
+df <- data.frame(x1, y1, x2, y2)
+
+ggplot(df) + geom_point(aes(x = x1, y = y1, col='actual')) + geom_point(aes(x = x2, y = y2,col='prediction')) + 
+labs(x = 'age (20 bins)', y = 'Average Pi', title ='Model evaluation using group plot')
+```
+
+As we can see in the plot above, actual and predicted values follow a similar trend, which tells us the model is making reasonable prediction. We have to note that our model is multivariate, and we are only looking at a single variable, age in this plot. However, the predicted probabilities from the logistic model take into account the whole row of data with all relevant features, so the predicted mean 'Pi' values for each age bin incorporate the model's performance in predicting the target variable based on all dependent variables.  
+
+# Cross Validation
+To cross-validate our model, we will evaluate its performance on the test data that it has not seen before. Our performance metric will be the classification accuracy score which is the fraction of the total targets in the test data that are correctly predicted (1 as 1 and 0 as 0).
+
+```{r}
+test.hat = predict(my.model,newdata=heart.test,type='response')
+test.hat = ifelse(test.hat> 0.5,1,0)
+miss= mean(test.hat != heart.test$target)
+print(paste('Classification Accuracy:',1-miss))
+```
+
+The classification accuracy is around `r round((1-miss)*100,digits=2)` %, which is not bad. The model certainly does a decent job in predicting the presence or absense of heart disease given the required variables. 
+
+# Confusion Matrix
+```{r}
+library(caret)
+cm = confusionMatrix(factor(test.hat),heart.test$target, positive = '1')
+fourfoldplot(cm$table, color = c("red", "green"),
+             conf.level = 0, margin = 1, main = "Confusion Matrix")
+```
+
+The confusion matrix shows that we are doing a pretty good job with classifying the target variable. The fasle positive and false negative rates are quick low. 
+
+# ROC and AUC 
+Since this is a binary classification problem, another performance metric that we can use is the ROC (receiver operating characteristic) curve which helps analyze how the model reponds to changing the threshold probability. It is basically a plot of true positive rate (also called sensitivity or recall) against the false positive rate (1-specificity) for different probability thresholds while classifying the target. The most common threshold is 0.5, but we can lower or raise it depending on how we want to control false positive and/or false negative rates. 
+
+```{r}
+library(ROCR)
+test.hat = predict(my.model,newdata=heart.test,type='response')
+pr = prediction(test.hat, heart.test$target)
+prf = performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+```
+
+```{r}
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
+
+The AUC (area under the curve) is `r round(auc,digits=2)` , which is pretty good. While an AUC score of 1 represents perfect predictive capability, AUC score close to 1 in simple terms means the model does a decent job of identifying the true positives and avoiding the false positives. 
+
+# Conclusion
+Looking at our cross-validation result, diagnostic plot, and performance metrics, we can claim that the logistic regression model we have developed is robust and does a pretty reasonable job of predicting heart disease correctly with a classification accuracy of approximately `r round((1-miss)*100,digits=2)` %, which means it performs reasonably well. The AUC for the model is `r round(auc,digits=2)`, which is close enough to 1.  
+
+# Member Contributions
+## Surendra Deuja: 
+Surendra analyzed the ggplots of all explanatory variavles colored by the target variable to get insight into the relationship between dependent and independent variables. Surenda and Madhav together worked primarly with epxloring the dataset, analyzing the explanatory variables and coming up with the best logistic regression model which is not unnecessarily complex yet robust in its performance. To simlify the model without losing any statistically significant, they used likelihood ratio test. 
+
+## Madhav Sigdel: 
+Madhav looked at the possible interaction effects between the independent variables. In our final model, we ended up including an interaction term between 'age' and 'thalach (maximum heart rate achieved)', which is statistically significant. Surenda and Madhav worked primarly with epxloring the dataset, analyzing the explanatory variables, and coming up with the best logistic regression model which is not unnecessarily complex yet robust in its performance. To simlify the model without losing any statistically significant information, they used likelihood ratio test. 
+
+## Bishwas Ghimire: 
+Bishwas worked mostly with cross-validation, model diagnostics, and performance evaluation. Cross-validation was done on a test set (20% of the whole dataset) that was sequestered in the very beginning. Model diagnostics was a little tricky. Since this is a logistic regression model, the residuals couldn't be analyzed with the conventional approach that has been used for linear regression models. To get around this, group plot of age ('age' in x-axis is grouped in several bins) against predicted probabilities was used. The result seemed convincing. Classificiation accuracy score, confusion matrix, and the ROC-AUC curve were used as performance metrics. 
+
+</font>
+
+
